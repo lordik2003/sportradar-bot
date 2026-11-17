@@ -1,12 +1,20 @@
-name: SportRadar hourly check
+
+name: SportRadar Dota 2
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 * * * *"
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sportradar
+  cancel-in-progress: false
 
 jobs:
-  connection-check:
+  bot:
     runs-on: ubuntu-latest
 
     steps:
@@ -18,8 +26,18 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Проверить связь с Telegram
+      - name: Запустить SportRadar
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python main.py
+
+      - name: Сохранить состояние бота
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Save SportRadar state"
+            git push
+          fi
