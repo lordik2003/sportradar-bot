@@ -2,7 +2,6 @@ import os
 import json
 import urllib.request
 import urllib.parse
-import urllib.error
 
 
 def get_live_matches():
@@ -16,12 +15,7 @@ def get_live_matches():
         return json.loads(response.read().decode("utf-8"))
 
 
-def format_time(seconds):
-    seconds = max(0, int(seconds))
-    return f"{seconds // 60}:{seconds % 60:02d}"
-
-
-def send_telegram(text):
+def send_telegram(message):
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
 
@@ -32,7 +26,7 @@ def send_telegram(text):
 
     data = urllib.parse.urlencode({
         "chat_id": chat_id,
-        "text": text
+        "text": message
     }).encode()
 
     request = urllib.request.Request(url, data=data)
@@ -41,49 +35,77 @@ def send_telegram(text):
         result = json.loads(response.read().decode("utf-8"))
 
     if not result.get("ok"):
-        raise RuntimeError("Telegram не принял сообщение")
+        raise RuntimeError("Ошибка отправки Telegram")
+
+
+def get_team_name(match, side):
+    team = match.get(f"{side}_team")
+
+    if isinstance(team, dict):
+        return team.get("name") or team.get("tag") or side.capitalize()
+
+    return match.get(f"{side}_name") or side.capitalize()
 
 
 def main():
     matches = get_live_matches()
 
     if not isinstance(matches, list):
-        raise ValueError("Неожиданный формат данных OpenDota")
+        raise ValueError("Ошибка получения матчей")
+
+    lines = [
+        "SportRadar | Dota 2",
+        "",
+        f"Активных матчей: {len(matches)}",
+        ""
+    ]
 
     if not matches:
-        message = "SportRadar — Dota 2\n\nСейчас активных матчей в источнике нет."
-    else:
-        lines = [
-            "SportRadar — Dota 2",
-            "",
-            f"Найдено матчей: {len(matches)}",
-            ""
+        lines.append("Сейчас активных матчей нет.")
+
+    for match in matches[:8]:
+        radiant = get_team_name(match, "radiant")
+        dire = get_team_name(match, "dire")
+
+        match_id = match.get("match_id", "нет данных")
+        league = match.get("league_name") or "Лига не указана"
+
+        score = (
+            f"{match.get('radiant_score', 0)}:"
+            f"{match.get('dire_score', 0)}"
+        )
+
+        seconds = max(0, int(match.get("game_time", 0)))
+        game_time = f"{seconds // 60}:{seconds % 60:02d}"
+
+        lead = match.get("radiant_lead")
+        advantage = (
+            f"Преимущество Radiant: {lead} золота"
+            if lead is not None
+            else "Преимущество по золоту: нет данных"
+        )
+
+        players = match.get("players") or []
+        names = [
+            player.get("name")
+            for player in players
+            if isinstance(player, dict) and player.get("name")
         ]
 
-        for match in matches[:8]:
-            radiant = match.get("radiant_name") or "Radiant"
-            dire = match.get("dire_name") or "Dire"
+        lines.extend([
+            f"{radiant} — {dire}",
+            f"Матч ID: {match_id}",
+            f"Лига: {league}",
+            f"Счёт: {score} | Время: {game_time}",
+            advantage,
+            "Игроки: " + (", ".join(names[:5]) if names else "нет данных"),
+            ""
+        ])
 
-            score = (
-                f"{match.get('radiant_score', 0)}:"
-                f"{match.get('dire_score', 0)}"
-            )
-
-            game_time = format_time(
-                match.get("game_time", match.get("game_time_seconds", 0))
-            )
-
-            lines.extend([
-                f"{radiant} — {dire}",
-                f"Счёт: {score} | Время: {game_time}",
-                f"Зрители: {match.get('spectators', 0)}",
-                ""
-            ])
-
-        message = "\n".join(lines)
+    message = "\n".join(lines)
 
     send_telegram(message)
-    print("Проверка Dota 2 завершена успешно.")
+    print("Проверка Dota 2 завершена.")
 
 
 if __name__ == "__main__":
